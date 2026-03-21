@@ -43,16 +43,15 @@
     <script>  
     const canvas = document.getElementById('canvas');  
     const ctx = canvas.getContext('2d');  
-    const W = 800;  
-    const H = 400;  
+    let W = 800;  
+    let H = 400;  
 
-    // Variabel game  
-    let state = 'welcome'; // welcome, playing, gameover  
+    let state = 'welcome';  
     let score = 0;  
     let highScore = localStorage.getItem('boxRunHigh') ? parseInt(localStorage.getItem('boxRunHigh')) : 0;  
     let speed = 4;  
     let playerX = 150;  
-    let playerY = 280;  
+    let playerY = 250;  
     let playerSize = 50;  
     let velocity = 0;  
     let gravity = 0.8;  
@@ -64,26 +63,129 @@
     let isBlinking = false;  
     let bob = 0;  
     let running = false;  
-    let gameSpeedMultiplier = 1;  
-    let spawnCooldown = 0;   // ← TAMBAHAN BARU
+    let spawnCooldown = 0;   
+    let lives = 3;           
+    let isDarkMode = false;   
+    let isLandscape = true;      
 
-    // Emoji rintangan (semua ukuran sama)  
+    let isPaused = false;
+    let isResuming = false;
+    let resumeFrame = 0;
+    let countdownValue = 3;
+
+    let notifications = [];
+    let currentSpeedMult = 1;
+    let speedMultEndFrame = 0;
+    let scoreMultEndFrame = 0;
+    let ghostEndFrame = 0;
+    let shakeEndFrame = 0;
+    let shortJumpEndFrame = 0;
+    let frozenEndFrame = 0;
+    let bigHitboxEndFrame = 0;
+    let glitchEndFrame = 0;
+    let autoEndFrame = 0;
+    let lastAutoJumpFrame = 0;
+
     const obstacleEmojis = [
-'🌲','🌳','🌴','🌊','🐅','🎄','☣️','🐐','🦆','🐒','🏆','🗿','⚔️','✖️','🪨','🏔️','⛰️','🌕','🌏','🪐','🌚','⚽','🎱','📺','🧱','🛁','📦','☢️','⛏️','⛓️',
+        '🌲','🌳','🌴','🌵','🍄','🪵','🪨','🏔️','🌋','🔥','🌪️','⚡','❄️','⛄',
+        '🧊','🌊','🧱','⛓️','💣','🧨','☢️','☣️','🏆','🗿','⚔️','🧿','🧲','🗑️',
+        '🐅','🐆','🦍','🦧','🐺','🐻','🐊','🐍','🐉','🦖','🦕','🦂','🕷️',
+        '🦇','🦅','🦈','🐙','🦑',
+        '🐐','🐒','🦆','🐘','🦏','🦛','🐫','🦒','🦘','🦬','🐂','🐎','🐖','🐑',
+        '🐕','🐈','🐇','🦝','🦨','🦡','🐀','🐿️','🦔',
+        '🚗','🚕','🚙','🚌','🚓','🚑','🚒','🚜','🏎️','🏍️','🛵','🚲','🛴',
+        '🚂','🚁','✈️','🚀','🛸',
+        '🍔','🍕','🌭','🍟','🍩','🍪','🎂','🍉','🍌','🍍','🌮','🌯','🍿',
+        '👻','💀','👽','👾','🤖','🧟','🧛','💻','📱','📺','🕹️','⏰','⏳'
+    ];
 
-// Tambahan baru 🔥
-'🐍','🐉','🦖','🦕','🐊','🦂','🕷️','🐝','🐺','🦈','🐋','🐘','🦓','🦒',
-'🚗','🚕','🚙','🚌','🚓','🚑','🚒','🚜','🚲','🏍️','✈️','🚀','🛸',
-'💣','🔥','⚡','❄️','🌪️','🌋','🌩️','🌀',
-'🍕','🍔','🍟','🌭','🍩','🍪','🍉','🍇','🍌','🍍',
-'🎮','🎲','🧸','🪀','🎯','🎳',
-'👻','💀','👽','🤖','👾',
-'🪙','💎','📀','📱','💻','⌛','⏰',
-'🧲','🔧','⚙️','🪛','🔨',
-'🧊','🧿','🪬','🧱','🧼','🧴'
-];
+    const emojiEffects = {
+        '💣': {damage: 999}, '🧨': {damage: 999}, '☢️': {damage: 999},
+        '☣️': {damage: 999}, '⚔️': {damage: 2}, '💀': {damage: 999},
+        '🍔': {heal: 1}, '🍕': {heal: 1}, '🍉': {heal: 1},
+        '🏆': {score: 50}, '💎': {x2: 300},
+        '⚡': {speedMult: 1.5, dur: 180}, '🧊': {speedMult: 0.5, dur: 180},
+        '🌪️': {shake: 120}, '🚀': {speedMult: 2.0, dur: 120},
+        '⛓️': {shortJump: 240}, '🕸️': {frozen: 90}, '🧱': {bigHitbox: 240},
+        '📺': {glitch: 120}, '👻': {ghost: 180},
+        '👽': {random: true}, '🤖': {auto: 120}, '🗿': {random: true}
+    };
 
-    // Audio unik (Web Audio API - no file eksternal)  
+    function addNotification(text, color = '#fff') {
+        notifications.push({text: text, color: color, life: 120});
+    }
+
+    function applySpecialEffect(emoji) {
+        const eff = emojiEffects[emoji];
+        if (!eff) return false;
+
+        if (eff.random) {
+            const randomKeys = Object.keys(emojiEffects).filter(k => 
+                !['💣','🧨','☢️','☣️','⚔️','💀','👽','🗿'].includes(k)
+            );
+            const randEmoji = randomKeys[Math.floor(Math.random() * randomKeys.length)];
+            applySpecialEffect(randEmoji);
+            return true;
+        }
+
+        let notifText = '', notifColor = '#fff';
+
+        if (eff.damage !== undefined) {
+            if (eff.damage >= 999) lives = 0; else lives -= eff.damage;
+            notifText = eff.damage >= 999 ? '💥 MATI INSTAN!' : `-${eff.damage} ❤️`;
+            notifColor = '#f00';
+            playDeathSound();
+        } else if (eff.heal) {
+            lives = Math.min(lives + eff.heal, 5);
+            notifText = `+${eff.heal} ❤️`;
+            notifColor = '#0f0';
+        } else if (eff.score) {
+            score += eff.score;
+            notifText = `+${eff.score} SCORE`;
+            notifColor = '#ffd700';
+        } else if (eff.x2) {
+            scoreMultEndFrame = frame + eff.x2;
+            notifText = '💎 SCORE ×2 (5 detik)';
+            notifColor = '#ffd700';
+        } else if (eff.speedMult !== undefined) {
+            currentSpeedMult = eff.speedMult;
+            speedMultEndFrame = frame + (eff.dur || 180);
+            notifText = eff.speedMult > 1 ? '⚡ CEPAT!' : '🧊 LAMBAT!';
+            notifColor = eff.speedMult > 1 ? '#ff0' : '#0bf';
+        } else if (eff.shake) {
+            shakeEndFrame = frame + eff.shake;
+            notifText = '🌪️ GOYANG!';
+            notifColor = '#aaa';
+        } else if (eff.shortJump) {
+            shortJumpEndFrame = frame + eff.shortJump;
+            notifText = '⛓️ LOMPAT PENDEK';
+            notifColor = '#f80';
+        } else if (eff.frozen) {
+            frozenEndFrame = frame + eff.frozen;
+            notifText = '🕸️ BEKU!';
+            notifColor = '#88f';
+        } else if (eff.bigHitbox) {
+            bigHitboxEndFrame = frame + eff.bigHitbox;
+            notifText = '🧱 HITBOX BESAR';
+            notifColor = '#f80';
+        } else if (eff.glitch) {
+            glitchEndFrame = frame + eff.glitch;
+            notifText = '📺 GLITCH!';
+            notifColor = '#f0f';
+        } else if (eff.ghost) {
+            ghostEndFrame = frame + eff.ghost;
+            notifText = '👻 TEMBUS RINTANGAN';
+            notifColor = '#0ff';
+        } else if (eff.auto) {
+            autoEndFrame = frame + eff.auto;
+            notifText = '🤖 AUTO JUMP';
+            notifColor = '#0f0';
+        }
+
+        if (notifText) addNotification(notifText, notifColor);
+        return true;
+    }
+
     let audioCtx;  
     function initAudio() {  
         if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();  
@@ -132,7 +234,6 @@
         gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);  
     }  
 
-    // Reset game  
     function resetGame() {  
         score = 0;  
         speed = 4;  
@@ -142,60 +243,74 @@
         isJumping = false;  
         running = false;  
         frame = 0;  
-        spawnCooldown = 0;   // ← RESET COOLDOWN saat mulai ulang
+        spawnCooldown = 0;   
+        lives = 3;  
+        isPaused = false;
+        isResuming = false;
+
+        notifications = [];
+        currentSpeedMult = 1;
+        speedMultEndFrame = 0;
+        scoreMultEndFrame = 0;
+        ghostEndFrame = 0;
+        shakeEndFrame = 0;
+        shortJumpEndFrame = 0;
+        frozenEndFrame = 0;
+        bigHitboxEndFrame = 0;
+        glitchEndFrame = 0;
+        autoEndFrame = 0;
+        lastAutoJumpFrame = 0;
     }  
 
-    // Spawn obstacle  
+    function toggleRotation() {  
+        isLandscape = !isLandscape;  
+        if (isLandscape) {  
+            canvas.width = 800; canvas.height = 400; W = 800; H = 400; groundY = 300; playerX = 150;  
+        } else {  
+            canvas.width = 400; canvas.height = 800; W = 400; H = 800; groundY = 700; playerX = 100;  
+        }  
+        playerY = groundY - playerSize;  
+        isJumping = false; velocity = 0; obstacles = []; spawnCooldown = 0;  
+    }  
+
     function spawnObstacle() {  
         const emoji = obstacleEmojis[Math.floor(Math.random() * obstacleEmojis.length)];  
-        obstacles.push({  
-            x: W + 50,  
-            emoji: emoji,  
-            size: 42  
-        });  
+        obstacles.push({ x: W + 50, emoji: emoji, size: 42 });  
     }  
 
-    // Update logic  
     function update() {  
         if (state !== 'playing') return;  
-
         frame++;  
 
-        // Blink mata kotak  
+        notifications = notifications.filter(n => { n.life--; return n.life > 0; });
+
+        if (isPaused) {  
+            if (isResuming) {
+                const elapsed = frame - resumeFrame;
+                if (elapsed >= 180) { isPaused = false; isResuming = false; } 
+                else { countdownValue = 3 - Math.floor(elapsed / 60); }
+            }
+            return;
+        }  
+
         blinkTimer--;  
         if (blinkTimer <= 0) {  
             isBlinking = true;  
-            if (blinkTimer < -8) {  
-                isBlinking = false;  
-                blinkTimer = 40 + Math.random() * 60;  
-            }  
+            if (blinkTimer < -8) { isBlinking = false; blinkTimer = 40 + Math.random() * 60; }  
         }  
-
-        // Bob goyang kotak saat berlari  
         bob = Math.sin(frame / 6) * 3;  
 
         if (running) {  
-            // Score  
-            score += 0.25;  
-            // Kecepatan naik setiap 50 score  
-            speed = 4 + Math.floor(score / 50);  
+            score += 0.25 * ((frame < scoreMultEndFrame) ? 2 : 1);  
+            speed = Math.min(4 + Math.floor(score / 50), 15);  
 
-            // Spawn dengan cooldown (jarak antar rintangan)  
             spawnCooldown--;  
-            if (obstacles.length === 0 && spawnCooldown <= 0) {  
-                spawnObstacle();  
-                spawnCooldown = 120; // 120 = santai, 150 = lebih mudah, 90 = agak susah
-            }  
+            if (spawnCooldown <= 0) { spawnObstacle(); spawnCooldown = Math.max(45, 160 - Math.floor(score / 15)); }  
 
-            // Gerak rintangan  
-            for (let i = 0; i < obstacles.length; i++) {  
-                obstacles[i].x -= speed;  
-            }  
-
-            // Hapus rintangan keluar layar  
+            let moveSpeed = speed * ((frame < speedMultEndFrame) ? currentSpeedMult : 1);  
+            for (let i = 0; i < obstacles.length; i++) obstacles[i].x -= moveSpeed;  
             if (obstacles.length > 0 && obstacles[0].x < -50) obstacles.shift();  
 
-            // Update player jump  
             if (isJumping) {  
                 velocity += gravity;  
                 playerY += velocity;  
@@ -207,252 +322,218 @@
                 }  
             }  
 
-            // Collision  
-            const playerRect = {  
-                x: playerX,  
-                y: playerY,  
-                w: playerSize,  
-                h: playerSize  
-            };  
-            for (let obs of obstacles) {  
-                const obsRect = {  
-                    x: obs.x,  
-                    y: groundY - obs.size,  
-                    w: obs.size,  
-                    h: obs.size  
-                };  
-                if (  
-                    playerRect.x < obsRect.x + obsRect.w &&  
-                    playerRect.x + playerRect.w > obsRect.x &&  
-                    playerRect.y < obsRect.y + obsRect.h &&  
-                    playerRect.y + playerRect.h > obsRect.y  
-                ) {  
-                    // DEATH  
-                    state = 'gameover';  
-                    playDeathSound();  
-                      
-                    // Update high score  
-                    let finalScore = Math.floor(score);  
-                    if (finalScore > highScore) {  
-                        highScore = finalScore;  
-                        localStorage.setItem('boxRunHigh', highScore);  
+            if (frame < autoEndFrame && !isJumping && frame - lastAutoJumpFrame > 25 && obstacles.length > 0 && frame >= frozenEndFrame) {  
+                const first = obstacles[0];  
+                if (first.x > playerX && first.x < playerX + 220) {  
+                    velocity = (frame < shortJumpEndFrame) ? -12 : -16;  
+                    isJumping = true;  
+                    playJumpSound();  
+                    lastAutoJumpFrame = frame;  
+                }  
+            }  
+
+            const isGhostActive = frame < ghostEndFrame;  
+            if (!isGhostActive) {  
+                const currentSize = (frame < bigHitboxEndFrame) ? 70 : playerSize;  
+                const playerRect = { x: playerX, y: playerY, w: currentSize, h: currentSize };  
+                for (let i = 0; i < obstacles.length; i++) {  
+                    let obs = obstacles[i];  
+                    const obsRect = { x: obs.x, y: groundY - obs.size, w: obs.size, h: obs.size };  
+                    if (playerRect.x < obsRect.x + obsRect.w &&  
+                        playerRect.x + playerRect.w > obsRect.x &&  
+                        playerRect.y < obsRect.y + obsRect.h &&  
+                        playerRect.y + playerRect.h > obsRect.y) {  
+                        
+                        const emoji = obs.emoji;  
+                        if (emojiEffects[emoji]) applySpecialEffect(emoji);  
+                        else { lives--; playDeathSound(); addNotification('-1 ❤️', '#c00'); }  
+
+                        obstacles.splice(i, 1); i--;  
+                        if (lives <= 0) {  
+                            state = 'gameover';  
+                            let finalScore = Math.floor(score);  
+                            if (finalScore > highScore) { highScore = finalScore; localStorage.setItem('boxRunHigh', highScore); }  
+                            return;  
+                        }  
                     }  
-                      
-                    return;  
                 }  
             }  
         }  
     }  
 
-    // Draw  
     function draw() {  
         ctx.clearRect(0, 0, W, H);  
-        ctx.fillStyle = '#ffffff';  
-        ctx.fillRect(0, 0, W, H);  
+        const bgColor = isDarkMode ? '#1e1e1e' : '#ffffff';  
+        const textColor = isDarkMode ? '#ffffff' : '#000000';  
+        const highColor = isDarkMode ? '#ffd700' : '#d4a017';  
+
+        ctx.fillStyle = bgColor; ctx.fillRect(0, 0, W, H);  
 
         if (state === 'welcome') {  
-            // Welcome screen persis gambar 2  
-            ctx.font = 'bold 48px Arial';  
-            ctx.fillStyle = '#000';  
-            ctx.textAlign = 'center';  
+            ctx.font = 'bold 48px Arial'; ctx.fillStyle = textColor; ctx.textAlign = 'center';  
             ctx.fillText('Welcome to the', W/2, 120);  
-            ctx.fillText('game= Box Run', W/2, 180);  
-              
-            // Moai  
-            ctx.font = '80px Arial';  
-            ctx.fillText('🗿', W/2 + 220, 165);  
-
-            // Play button besar  
-            ctx.font = 'bold 72px Arial';  
-            ctx.fillStyle = '#000';  
-            ctx.fillText('Play', W/2 - 80, 300);  
-            ctx.font = '80px Arial';  
-            ctx.fillText('🗿', W/2 + 120, 310);  
-
-            // Kotak tombol play (untuk deteksi klik)  
-            playButton = {x: W/2 - 140, y: 240, w: 280, h: 90};  
+            ctx.fillText('Box Run', W/2, 180);  
+            ctx.font = '80px Arial'; ctx.fillText('🗿', W/2 + 220, 165);  
+            ctx.font = 'bold 72px Arial'; ctx.fillText('Play', W/2 - 80, 300);  
+            ctx.font = '80px Arial'; ctx.fillText('🗿', W/2 + 120, 310);  
         }  
 
         else if (state === 'playing') {  
-            // Ground hijau persis gambar 1  
-            ctx.fillStyle = '#0b8c00';  
-            ctx.fillRect(0, groundY, W, H - groundY);  
+            // === WORLD DULU (agar tidak menutupi UI) ===
+            ctx.save();  
+            let shakeX = 0, shakeY = 0;  
+            if (frame < shakeEndFrame) { shakeX = Math.random()*8-4; shakeY = Math.random()*8-4; }  
+            ctx.translate(shakeX, shakeY);  
 
-            // Score & Highest persis gambar  
-            ctx.font = 'bold 28px Arial';  
-            ctx.fillStyle = '#000';  
-            ctx.textAlign = 'left';  
-            ctx.fillText(`Score: ${Math.floor(score)}`, 30, 50);  
-            ctx.fillStyle = '#d4a017';  
-            ctx.fillText(`highest score: ${highScore}`, 30, 85);  
+            ctx.fillStyle = '#0b8c00'; ctx.fillRect(0, groundY, W, H - groundY);  
 
-            // Kotak merah + animasi kedip & goyang  
+            const currentSize = (frame < bigHitboxEndFrame) ? 70 : playerSize;  
             const drawY = playerY + bob;  
-            ctx.fillStyle = '#e60000';  
-            ctx.fillRect(playerX, drawY, playerSize, playerSize);  
+            const glitchActive = frame < glitchEndFrame;  
+            ctx.fillStyle = glitchActive ? `hsl(${Math.floor(Math.random()*360)},100%,50%)` : '#e60000';  
+            ctx.fillRect(playerX, drawY, currentSize, currentSize);  
 
-            // Mata putih  
-            ctx.fillStyle = '#ffffff';  
             if (!isBlinking) {  
+                ctx.fillStyle = '#ffffff';  
+                const eyeR = currentSize / 6.25; const pupilR = currentSize / 16.6;  
+                const eyeY = drawY + currentSize * 0.36;  
                 ctx.beginPath();  
-                ctx.arc(playerX + 15, drawY + 18, 8, 0, Math.PI * 2);  
-                ctx.arc(playerX + 35, drawY + 18, 8, 0, Math.PI * 2);  
-                ctx.fill();  
-                  
-                // Pupil hitam  
+                ctx.arc(playerX + currentSize*0.3, eyeY, eyeR, 0, Math.PI*2);  
+                ctx.arc(playerX + currentSize*0.7, eyeY, eyeR, 0, Math.PI*2); ctx.fill();  
                 ctx.fillStyle = '#000';  
                 ctx.beginPath();  
-                ctx.arc(playerX + 15, drawY + 18, 3, 0, Math.PI * 2);  
-                ctx.arc(playerX + 35, drawY + 18, 3, 0, Math.PI * 2);  
-                ctx.fill();  
+                ctx.arc(playerX + currentSize*0.3, eyeY, pupilR, 0, Math.PI*2);  
+                ctx.arc(playerX + currentSize*0.7, eyeY, pupilR, 0, Math.PI*2); ctx.fill();  
             } else {  
-                // Mata kedip (garis)  
-                ctx.strokeStyle = '#000';  
-                ctx.lineWidth = 4;  
+                ctx.strokeStyle = '#000'; ctx.lineWidth = currentSize / 12.5;  
                 ctx.beginPath();  
-                ctx.moveTo(playerX + 8, drawY + 18);  
-                ctx.lineTo(playerX + 22, drawY + 18);  
-                ctx.moveTo(playerX + 28, drawY + 18);  
-                ctx.lineTo(playerX + 42, drawY + 18);  
+                ctx.moveTo(playerX + currentSize*0.2, drawY + currentSize*0.36);  
+                ctx.lineTo(playerX + currentSize*0.45, drawY + currentSize*0.36);  
+                ctx.moveTo(playerX + currentSize*0.55, drawY + currentSize*0.36);  
+                ctx.lineTo(playerX + currentSize*0.8, drawY + currentSize*0.36);  
                 ctx.stroke();  
             }  
 
-            // Rintangan  
-            ctx.font = '42px Arial';  
-            ctx.textAlign = 'center';  
+            ctx.font = '42px Arial'; ctx.textAlign = 'center';  
             for (let obs of obstacles) {  
+                ctx.save();  
+                if (glitchActive) ctx.translate(Math.random()*6-3, Math.random()*6-3);  
                 ctx.fillText(obs.emoji, obs.x + obs.size/2, groundY - 5);  
+                ctx.restore();  
             }  
+            ctx.restore();  
 
-            // Instruction persis gambar 1  
-            ctx.font = 'bold 22px Arial';  
-            ctx.fillStyle = '#000';  
-            ctx.textAlign = 'center';  
+            // === UI DI ATAS SEMUA (sekarang tidak tertutup tanah) ===
+            ctx.font = 'bold 28px Arial'; ctx.fillStyle = textColor; ctx.textAlign = 'left';  
+            ctx.fillText(`Score: ${Math.floor(score)}`, 30, 50);  
+            ctx.fillStyle = highColor; ctx.fillText(`highest score: ${highScore}`, 30, 85);  
+
+            ctx.font = 'bold 40px Arial'; ctx.fillStyle = '#c00'; ctx.textAlign = 'right';  
+            ctx.fillText('❤️'.repeat(lives), W - 40, H - 40);  
+
+            ctx.font = '35px Arial'; ctx.fillStyle = textColor; ctx.textAlign = 'left';  
+            ctx.fillText(isDarkMode ? '☀️' : '🌙', 30, H - 40);  
+            ctx.fillText('◀️', 95, H - 40);  
+            ctx.fillText('📱', 160, H - 40);  
+
+            // Notifikasi buff (kanan atas)
+            ctx.textAlign = 'right'; ctx.font = 'bold 26px Arial';  
+            let notifY = 130;  
+            for (let i = 0; i < notifications.length && i < 5; i++) {  
+                const n = notifications[i];  
+                ctx.globalAlpha = n.life > 60 ? 1 : n.life / 60;  
+                ctx.fillStyle = n.color;  
+                ctx.fillText(n.text, W - 30, notifY);  
+                notifY += 36;  
+            }  
+            ctx.globalAlpha = 1; ctx.textAlign = 'left';  
+
+            // Instruction
+            ctx.font = 'bold 22px Arial'; ctx.fillStyle = textColor; ctx.textAlign = 'center';  
             ctx.fillText('Press E', W/2 - 80, H - 35);  
-            ctx.font = '18px Arial';  
-            ctx.fillText('🖮', W/2 - 10, H - 35);  
-            ctx.font = 'bold 22px Arial';  
-            ctx.fillText('or screen', W/2 + 70, H - 35);  
-            ctx.font = '30px Arial';  
-            ctx.fillText('📱', W/2 + 160, H - 40);  
+            ctx.font = '18px Arial'; ctx.fillText('🖮', W/2 - 10, H - 35);  
+            ctx.font = 'bold 22px Arial'; ctx.fillText('or screen', W/2 + 70, H - 35);  
+            ctx.font = '30px Arial'; ctx.fillText('📱', W/2 + 160, H - 40);  
+
+            if (isPaused) {  
+                ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0,0,W,H);  
+                ctx.fillStyle = '#fff'; ctx.textAlign = 'center';  
+                if (isResuming) {  
+                    ctx.font = 'bold 140px Arial'; ctx.fillText(countdownValue.toString(), W/2, H/2 + 40);  
+                } else {  
+                    ctx.font = 'bold 70px Arial'; ctx.fillText('PAUSED', W/2, H/2 - 20);  
+                    ctx.font = '30px Arial'; ctx.fillText('Tekan ◀️ untuk lanjut', W/2, H/2 + 40);  
+                }  
+            }  
         }  
 
         else if (state === 'gameover') {  
-            // Background tetap  
-            ctx.fillStyle = '#ffffff';  
-            ctx.fillRect(0, 0, W, H);  
-            ctx.fillStyle = '#0b8c00';  
-            ctx.fillRect(0, groundY, W, H - groundY);  
+            ctx.fillStyle = bgColor; ctx.fillRect(0,0,W,H);  
+            ctx.fillStyle = '#0b8c00'; ctx.fillRect(0, groundY, W, H-groundY);  
+            ctx.fillStyle = '#e60000'; ctx.fillRect(playerX + 8, playerY + 5, playerSize, playerSize);  
+            ctx.strokeStyle = '#000'; ctx.lineWidth = 6;  
+            ctx.beginPath(); ctx.moveTo(playerX+12,playerY+15); ctx.lineTo(playerX+38,playerY+38);  
+            ctx.moveTo(playerX+38,playerY+15); ctx.lineTo(playerX+12,playerY+38); ctx.stroke();  
 
-            // Kotak mati (sedikit goyang terakhir)  
-            ctx.fillStyle = '#e60000';  
-            ctx.fillRect(playerX + 8, playerY + 5, playerSize, playerSize);  
-
-            // Mata X mati  
-            ctx.strokeStyle = '#000';  
-            ctx.lineWidth = 6;  
-            ctx.beginPath();  
-            ctx.moveTo(playerX + 12, playerY + 15);  
-            ctx.lineTo(playerX + 38, playerY + 38);  
-            ctx.moveTo(playerX + 38, playerY + 15);  
-            ctx.lineTo(playerX + 12, playerY + 38);  
-            ctx.stroke();  
-
-            // Game Over text  
-            ctx.font = 'bold 52px Arial';  
-            ctx.fillStyle = '#c00';  
-            ctx.textAlign = 'center';  
+            ctx.font = 'bold 52px Arial'; ctx.fillStyle = '#c00'; ctx.textAlign = 'center';  
             ctx.fillText('GAME OVER', W/2, 120);  
-
-            ctx.font = '28px Arial';  
-            ctx.fillStyle = '#000';  
+            ctx.font = '28px Arial'; ctx.fillStyle = textColor;  
             ctx.fillText(`Score: ${Math.floor(score)}`, W/2, 190);  
             ctx.fillText(`Highest: ${highScore}`, W/2, 230);  
 
-            // Tombol restart custom (persis permintaan)  
-            ctx.fillStyle = '#000';  
-            ctx.fillRect(W/2 - 130, 360, 260, 55);  
-            ctx.fillStyle = '#fff';  
-            ctx.font = 'bold 32px Arial';  
-            ctx.fillText('RESTART 🗿', W/2, 395);  
-
-            restartButton = {x: W/2 - 130, y: 360, w: 260, h: 55};  
+            ctx.fillStyle = '#000'; ctx.fillRect(W/2-130, H-60, 260, 55);  
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 32px Arial'; ctx.fillText('RESTART 🗿', W/2, H-25);  
         }  
     }  
-
-    // Input handler (keyboard + touch + mouse)  
-    let playButton = {};  
-    let restartButton = {};  
 
     function handleInput(clientX, clientY) {  
         const rect = canvas.getBoundingClientRect();  
         const x = (clientX - rect.left) * (W / rect.width);  
         const y = (clientY - rect.top) * (H / rect.height);  
 
+        if (state === 'playing' && y > H - 80 && x < 210) {  
+            if (x < 70) { isDarkMode = !isDarkMode; return; }  
+            if (x > 80 && x < 130) {  
+                if (!isPaused && !isResuming) isPaused = true;  
+                else if (isPaused && !isResuming) { isResuming = true; resumeFrame = frame; countdownValue = 3; }  
+                return;  
+            }  
+            if (x > 145 && x < 195) { toggleRotation(); return; }  
+        }  
+
+        if (state === 'playing' && isPaused) return;  
+
         if (state === 'welcome') {  
-            if (x > playButton.x && x < playButton.x + playButton.w &&  
-                y > playButton.y && y < playButton.y + playButton.h) {  
-                state = 'playing';  
-                resetGame();  
-                document.getElementById('info').style.display = 'block';  
+            state = 'playing'; resetGame(); document.getElementById('info').style.display = 'block';  
+        } else if (state === 'playing') {  
+            if (!running) running = true;  
+            else if (!isJumping && frame >= frozenEndFrame) {  
+                velocity = (frame < shortJumpEndFrame) ? -12 : -16;  
+                isJumping = true; playJumpSound();  
             }  
-        }  
-        else if (state === 'playing') {  
-            if (!running) {  
-                running = true;  
-            } else if (!isJumping) {  
-                velocity = -16;  
-                isJumping = true;  
-                playJumpSound();  
-            }  
-        }  
-        else if (state === 'gameover') {  
-            if (x > restartButton.x && x < restartButton.x + restartButton.w &&  
-                y > restartButton.y && y < restartButton.y + restartButton.h) {  
-                state = 'playing';  
-                resetGame();  
-            }  
+        } else if (state === 'gameover') {  
+            state = 'playing'; resetGame();  
         }  
     }  
 
-    // Event listeners  
     document.addEventListener('keydown', (e) => {  
-        if (state === 'playing') {  
-            if (!running) {  
-                running = true;  
-            } else if (e.key === ' ' || e.key.toLowerCase() === 'e') {  
-                if (!isJumping) {  
-                    velocity = -16;  
-                    isJumping = true;  
-                    playJumpSound();  
-                }  
+        if (state === 'playing' && !isPaused) {  
+            if (!running) running = true;  
+            else if ((e.key === ' ' || e.key.toLowerCase() === 'e') && !isJumping && frame >= frozenEndFrame) {  
+                velocity = (frame < shortJumpEndFrame) ? -12 : -16;  
+                isJumping = true; playJumpSound();  
             }  
         }  
     });  
 
-    canvas.addEventListener('click', (e) => {  
-        handleInput(e.clientX, e.clientY);  
-    });  
-
+    canvas.addEventListener('click', (e) => handleInput(e.clientX, e.clientY));  
     canvas.addEventListener('touchstart', (e) => {  
         e.preventDefault();  
-        if (e.touches.length > 0) {  
-            handleInput(e.touches[0].clientX, e.touches[0].clientY);  
-        }  
-    });  
+        if (e.touches.length > 0) handleInput(e.touches[0].clientX, e.touches[0].clientY);  
+    }, { passive: false });  
 
-    // Game loop  
-    function gameLoop() {  
-        update();  
-        draw();  
-        requestAnimationFrame(gameLoop);  
-    }  
-
-    // Mulai  
-    window.onload = () => {  
-        gameLoop();  
-    };  
-</script>
-
+    function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }  
+    window.onload = () => { gameLoop(); };  
+    </script>  
 </body>  
-</html>
+    </html>
