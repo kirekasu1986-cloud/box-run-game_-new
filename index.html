@@ -99,17 +99,53 @@
         '👻','💀','👽','👾','🤖','🧟','🧛','💻','📱','📺','🕹️','⏰','⏳'
     ];
 
-    const emojiEffects = {
-        '💣': {damage: 999}, '🧨': {damage: 999}, '☢️': {damage: 999},
-        '☣️': {damage: 999}, '⚔️': {damage: 2}, '💀': {damage: 999},
-        '🍔': {heal: 1}, '🍕': {heal: 1}, '🍉': {heal: 1},
-        '🏆': {score: 50}, '💎': {x2: 300},
-        '⚡': {speedMult: 1.5, dur: 180}, '🧊': {speedMult: 0.5, dur: 180},
-        '🌪️': {shake: 120}, '🚀': {speedMult: 2.0, dur: 120},
-        '⛓️': {shortJump: 240}, '🕸️': {frozen: 90}, '🧱': {bigHitbox: 240},
-        '📺': {glitch: 120}, '👻': {ghost: 180},
-        '👽': {random: true}, '🤖': {auto: 120}, '🗿': {random: true}
-    };
+         const emojiEffects = {
+    // --- DAMAGE & BAHAYA ---
+    '💣': {damage: 999}, 
+    '🧨': {damage: 999}, 
+    '☢️': {damage: 999},
+    '☣️': {damage: 999}, 
+    '💀': {damage: 999},
+    '⚔️': {damage: 2}, 
+
+    // --- HEAL (MAKANAN & BUAH) ---
+    '🍔': {heal: 1}, 
+    '🍕': {heal: 1}, 
+    '🌭': {heal: 1}, 
+    '🍟': {heal: 1}, 
+    'donut': {heal: 1}, // 🍩
+    '🍪': {heal: 1}, 
+    '🎂': {heal: 1}, 
+    '🍉': {heal: 1}, 
+    '🍌': {heal: 1}, 
+    '🍍': {heal: 1}, 
+    '🌮': {heal: 1}, 
+    '🌯': {heal: 1}, 
+    '🍿': {heal: 1},
+
+    // --- BUFF & SKOR ---
+    '🏆': {score: 50}, 
+    '💎': {x2: 300},
+    '⚡': {speedMult: 1.5, dur: 180}, 
+    '🚀': {speedMult: 2.0, dur: 120},
+    '👻': {ghost: 180},
+    '🤖': {auto: 120},
+
+    // --- DEBUFF & KENDALA ---
+    '🧊': {speedMult: 0.5, dur: 180},
+    '🌪️': {shake: 120}, 
+    '⛓️': {shortJump: 240}, 
+    '🕸️': {frozen: 90}, 
+    '🧱': {bigHitbox: 240},
+    '📺': {glitch: 120}, 
+
+    // --- EFEK RANDOM ---
+    '👽': {random: true}, 
+    '🗿': {random: true}
+
+             
+};
+        
 
     function addNotification(text, color = '#fff') {
         notifications.push({text: text, color: color, life: 120});
