@@ -1,0 +1,445 @@
+<!DOCTYPE html>  
+<html lang="id">  
+<head>  
+    <meta charset="UTF-8">  
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">  
+    <title>Box Run 🗿</title>  
+    <style>  
+        body {  
+            margin: 0;  
+            padding: 0;  
+            background: #000;  
+            display: flex;  
+            justify-content: center;  
+            align-items: center;  
+            height: 100vh;  
+            font-family: Arial, sans-serif;  
+            overflow: hidden;  
+            touch-action: none;  
+        }  
+        canvas {  
+            border: 4px solid #222;  
+            background: #fff;  
+            max-width: 100%;  
+            max-height: 100%;  
+            image-rendering: pixelated;  
+        }  
+        #info {  
+            position: absolute;  
+            top: 10px;  
+            left: 10px;  
+            color: #fff;  
+            font-size: 12px;  
+            background: rgba(0,0,0,0.5);  
+            padding: 5px;  
+            border-radius: 5px;  
+            display: none;  
+        }  
+    </style>  
+</head>  
+<body>  
+    <canvas id="canvas" width="800" height="400"></canvas>  
+    <div id="info">Tekan E / Tap layar untuk loncat<br>Game dibuat 100% sesuai gambarmu 🗿</div>  
+    <script>  
+    const canvas = document.getElementById('canvas');  
+    const ctx = canvas.getContext('2d');  
+    const W = 800;  
+    const H = 400;  
+
+    // Variabel game  
+    let state = 'welcome'; // welcome, playing, gameover  
+    let score = 0;  
+    let highScore = localStorage.getItem('boxRunHigh') ? parseInt(localStorage.getItem('boxRunHigh')) : 0;  
+    let speed = 4;  
+    let playerX = 150;  
+    let playerY = 280;  
+    let playerSize = 50;  
+    let velocity = 0;  
+    let gravity = 0.8;  
+    let isJumping = false;  
+    let groundY = 300;  
+    let obstacles = [];  
+    let frame = 0;  
+    let blinkTimer = 60;  
+    let isBlinking = false;  
+    let bob = 0;  
+    let running = false;  
+    let gameSpeedMultiplier = 1;  
+    let spawnCooldown = 0;   // ← TAMBAHAN BARU
+
+    // Emoji rintangan (semua ukuran sama)  
+    const obstacleEmojis = ['🌲','🌳','🌴','🎄','☣️','🐐','🦆','🐒','🏆','🗿','⚔️','✖️','🪨','🏔️','⛰️','🌕','🌏','🪐','🌚','⚽','🎱','📺','🧱','🛁','📦','☢️','⛏️','⛓️'];  
+
+    // Audio unik (Web Audio API - no file eksternal)  
+    let audioCtx;  
+    function initAudio() {  
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();  
+    }  
+    function playJumpSound() {  
+        initAudio();  
+        const osc = audioCtx.createOscillator();  
+        const gain = audioCtx.createGain();  
+        osc.type = 'sine';  
+        osc.frequency.setValueAtTime(800, audioCtx.currentTime);  
+        gain.gain.value = 0.4;  
+        osc.connect(gain).connect(audioCtx.destination);  
+        osc.start();  
+        setTimeout(() => {  
+            osc.frequency.linearRampToValueAtTime(400, audioCtx.currentTime + 0.15);  
+            gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.3);  
+        }, 50);  
+        setTimeout(() => osc.stop(), 300);  
+    }  
+    function playDeathSound() {  
+        initAudio();  
+        const osc = audioCtx.createOscillator();  
+        const gain = audioCtx.createGain();  
+        osc.type = 'sawtooth';  
+        osc.frequency.value = 150;  
+        gain.gain.value = 0.6;  
+        osc.connect(gain).connect(audioCtx.destination);  
+        osc.start();  
+        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.8);  
+        setTimeout(() => osc.stop(), 800);  
+    }  
+    function playLandSound() {  
+        initAudio();  
+        const noise = audioCtx.createBufferSource();  
+        const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.1, audioCtx.sampleRate);  
+        const data = buffer.getChannelData(0);  
+        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;  
+        noise.buffer = buffer;  
+        const filter = audioCtx.createBiquadFilter();  
+        filter.type = 'lowpass';  
+        filter.frequency.value = 800;  
+        const gain = audioCtx.createGain();  
+        gain.gain.value = 0.3;  
+        noise.connect(filter).connect(gain).connect(audioCtx.destination);  
+        noise.start();  
+        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);  
+    }  
+
+    // Reset game  
+    function resetGame() {  
+        score = 0;  
+        speed = 4;  
+        obstacles = [];  
+        playerY = groundY - playerSize;  
+        velocity = 0;  
+        isJumping = false;  
+        running = false;  
+        frame = 0;  
+        spawnCooldown = 0;   // ← RESET COOLDOWN saat mulai ulang
+    }  
+
+    // Spawn obstacle  
+    function spawnObstacle() {  
+        const emoji = obstacleEmojis[Math.floor(Math.random() * obstacleEmojis.length)];  
+        obstacles.push({  
+            x: W + 50,  
+            emoji: emoji,  
+            size: 42  
+        });  
+    }  
+
+    // Update logic  
+    function update() {  
+        if (state !== 'playing') return;  
+
+        frame++;  
+
+        // Blink mata kotak  
+        blinkTimer--;  
+        if (blinkTimer <= 0) {  
+            isBlinking = true;  
+            if (blinkTimer < -8) {  
+                isBlinking = false;  
+                blinkTimer = 40 + Math.random() * 60;  
+            }  
+        }  
+
+        // Bob goyang kotak saat berlari  
+        bob = Math.sin(frame / 6) * 3;  
+
+        if (running) {  
+            // Score  
+            score += 0.25;  
+            // Kecepatan naik setiap 50 score  
+            speed = 4 + Math.floor(score / 50);  
+
+            // Spawn dengan cooldown (jarak antar rintangan)  
+            spawnCooldown--;  
+            if (obstacles.length === 0 && spawnCooldown <= 0) {  
+                spawnObstacle();  
+                spawnCooldown = 120; // 120 = santai, 150 = lebih mudah, 90 = agak susah
+            }  
+
+            // Gerak rintangan  
+            for (let i = 0; i < obstacles.length; i++) {  
+                obstacles[i].x -= speed;  
+            }  
+
+            // Hapus rintangan keluar layar  
+            if (obstacles.length > 0 && obstacles[0].x < -50) obstacles.shift();  
+
+            // Update player jump  
+            if (isJumping) {  
+                velocity += gravity;  
+                playerY += velocity;  
+                if (playerY >= groundY - playerSize) {  
+                    playerY = groundY - playerSize;  
+                    isJumping = false;  
+                    velocity = 0;  
+                    playLandSound();  
+                }  
+            }  
+
+            // Collision  
+            const playerRect = {  
+                x: playerX,  
+                y: playerY,  
+                w: playerSize,  
+                h: playerSize  
+            };  
+            for (let obs of obstacles) {  
+                const obsRect = {  
+                    x: obs.x,  
+                    y: groundY - obs.size,  
+                    w: obs.size,  
+                    h: obs.size  
+                };  
+                if (  
+                    playerRect.x < obsRect.x + obsRect.w &&  
+                    playerRect.x + playerRect.w > obsRect.x &&  
+                    playerRect.y < obsRect.y + obsRect.h &&  
+                    playerRect.y + playerRect.h > obsRect.y  
+                ) {  
+                    // DEATH  
+                    state = 'gameover';  
+                    playDeathSound();  
+                      
+                    // Update high score  
+                    let finalScore = Math.floor(score);  
+                    if (finalScore > highScore) {  
+                        highScore = finalScore;  
+                        localStorage.setItem('boxRunHigh', highScore);  
+                    }  
+                      
+                    return;  
+                }  
+            }  
+        }  
+    }  
+
+    // Draw  
+    function draw() {  
+        ctx.clearRect(0, 0, W, H);  
+        ctx.fillStyle = '#ffffff';  
+        ctx.fillRect(0, 0, W, H);  
+
+        if (state === 'welcome') {  
+            // Welcome screen persis gambar 2  
+            ctx.font = 'bold 48px Arial';  
+            ctx.fillStyle = '#000';  
+            ctx.textAlign = 'center';  
+            ctx.fillText('Welcome to the', W/2, 120);  
+            ctx.fillText('game= Box Run', W/2, 180);  
+              
+            // Moai  
+            ctx.font = '80px Arial';  
+            ctx.fillText('🗿', W/2 + 220, 165);  
+
+            // Play button besar  
+            ctx.font = 'bold 72px Arial';  
+            ctx.fillStyle = '#000';  
+            ctx.fillText('Play', W/2 - 80, 300);  
+            ctx.font = '80px Arial';  
+            ctx.fillText('🗿', W/2 + 120, 310);  
+
+            // Kotak tombol play (untuk deteksi klik)  
+            playButton = {x: W/2 - 140, y: 240, w: 280, h: 90};  
+        }  
+
+        else if (state === 'playing') {  
+            // Ground hijau persis gambar 1  
+            ctx.fillStyle = '#0b8c00';  
+            ctx.fillRect(0, groundY, W, H - groundY);  
+
+            // Score & Highest persis gambar  
+            ctx.font = 'bold 28px Arial';  
+            ctx.fillStyle = '#000';  
+            ctx.textAlign = 'left';  
+            ctx.fillText(`Score: ${Math.floor(score)}`, 30, 50);  
+            ctx.fillStyle = '#d4a017';  
+            ctx.fillText(`highest score: ${highScore}`, 30, 85);  
+
+            // Kotak merah + animasi kedip & goyang  
+            const drawY = playerY + bob;  
+            ctx.fillStyle = '#e60000';  
+            ctx.fillRect(playerX, drawY, playerSize, playerSize);  
+
+            // Mata putih  
+            ctx.fillStyle = '#ffffff';  
+            if (!isBlinking) {  
+                ctx.beginPath();  
+                ctx.arc(playerX + 15, drawY + 18, 8, 0, Math.PI * 2);  
+                ctx.arc(playerX + 35, drawY + 18, 8, 0, Math.PI * 2);  
+                ctx.fill();  
+                  
+                // Pupil hitam  
+                ctx.fillStyle = '#000';  
+                ctx.beginPath();  
+                ctx.arc(playerX + 15, drawY + 18, 3, 0, Math.PI * 2);  
+                ctx.arc(playerX + 35, drawY + 18, 3, 0, Math.PI * 2);  
+                ctx.fill();  
+            } else {  
+                // Mata kedip (garis)  
+                ctx.strokeStyle = '#000';  
+                ctx.lineWidth = 4;  
+                ctx.beginPath();  
+                ctx.moveTo(playerX + 8, drawY + 18);  
+                ctx.lineTo(playerX + 22, drawY + 18);  
+                ctx.moveTo(playerX + 28, drawY + 18);  
+                ctx.lineTo(playerX + 42, drawY + 18);  
+                ctx.stroke();  
+            }  
+
+            // Rintangan  
+            ctx.font = '42px Arial';  
+            ctx.textAlign = 'center';  
+            for (let obs of obstacles) {  
+                ctx.fillText(obs.emoji, obs.x + obs.size/2, groundY - 5);  
+            }  
+
+            // Instruction persis gambar 1  
+            ctx.font = 'bold 22px Arial';  
+            ctx.fillStyle = '#000';  
+            ctx.textAlign = 'center';  
+            ctx.fillText('Press E', W/2 - 80, H - 35);  
+            ctx.font = '18px Arial';  
+            ctx.fillText('🖮', W/2 - 10, H - 35);  
+            ctx.font = 'bold 22px Arial';  
+            ctx.fillText('or screen', W/2 + 70, H - 35);  
+            ctx.font = '30px Arial';  
+            ctx.fillText('📱', W/2 + 160, H - 40);  
+        }  
+
+        else if (state === 'gameover') {  
+            // Background tetap  
+            ctx.fillStyle = '#ffffff';  
+            ctx.fillRect(0, 0, W, H);  
+            ctx.fillStyle = '#0b8c00';  
+            ctx.fillRect(0, groundY, W, H - groundY);  
+
+            // Kotak mati (sedikit goyang terakhir)  
+            ctx.fillStyle = '#e60000';  
+            ctx.fillRect(playerX + 8, playerY + 5, playerSize, playerSize);  
+
+            // Mata X mati  
+            ctx.strokeStyle = '#000';  
+            ctx.lineWidth = 6;  
+            ctx.beginPath();  
+            ctx.moveTo(playerX + 12, playerY + 15);  
+            ctx.lineTo(playerX + 38, playerY + 38);  
+            ctx.moveTo(playerX + 38, playerY + 15);  
+            ctx.lineTo(playerX + 12, playerY + 38);  
+            ctx.stroke();  
+
+            // Game Over text  
+            ctx.font = 'bold 52px Arial';  
+            ctx.fillStyle = '#c00';  
+            ctx.textAlign = 'center';  
+            ctx.fillText('GAME OVER', W/2, 120);  
+
+            ctx.font = '28px Arial';  
+            ctx.fillStyle = '#000';  
+            ctx.fillText(`Score: ${Math.floor(score)}`, W/2, 190);  
+            ctx.fillText(`Highest: ${highScore}`, W/2, 230);  
+
+            // Tombol restart custom (persis permintaan)  
+            ctx.fillStyle = '#000';  
+            ctx.fillRect(W/2 - 130, 360, 260, 55);  
+            ctx.fillStyle = '#fff';  
+            ctx.font = 'bold 32px Arial';  
+            ctx.fillText('RESTART 🗿', W/2, 395);  
+
+            restartButton = {x: W/2 - 130, y: 360, w: 260, h: 55};  
+        }  
+    }  
+
+    // Input handler (keyboard + touch + mouse)  
+    let playButton = {};  
+    let restartButton = {};  
+
+    function handleInput(clientX, clientY) {  
+        const rect = canvas.getBoundingClientRect();  
+        const x = (clientX - rect.left) * (W / rect.width);  
+        const y = (clientY - rect.top) * (H / rect.height);  
+
+        if (state === 'welcome') {  
+            if (x > playButton.x && x < playButton.x + playButton.w &&  
+                y > playButton.y && y < playButton.y + playButton.h) {  
+                state = 'playing';  
+                resetGame();  
+                document.getElementById('info').style.display = 'block';  
+            }  
+        }  
+        else if (state === 'playing') {  
+            if (!running) {  
+                running = true;  
+            } else if (!isJumping) {  
+                velocity = -16;  
+                isJumping = true;  
+                playJumpSound();  
+            }  
+        }  
+        else if (state === 'gameover') {  
+            if (x > restartButton.x && x < restartButton.x + restartButton.w &&  
+                y > restartButton.y && y < restartButton.y + restartButton.h) {  
+                state = 'playing';  
+                resetGame();  
+            }  
+        }  
+    }  
+
+    // Event listeners  
+    document.addEventListener('keydown', (e) => {  
+        if (state === 'playing') {  
+            if (!running) {  
+                running = true;  
+            } else if (e.key === ' ' || e.key.toLowerCase() === 'e') {  
+                if (!isJumping) {  
+                    velocity = -16;  
+                    isJumping = true;  
+                    playJumpSound();  
+                }  
+            }  
+        }  
+    });  
+
+    canvas.addEventListener('click', (e) => {  
+        handleInput(e.clientX, e.clientY);  
+    });  
+
+    canvas.addEventListener('touchstart', (e) => {  
+        e.preventDefault();  
+        if (e.touches.length > 0) {  
+            handleInput(e.touches[0].clientX, e.touches[0].clientY);  
+        }  
+    });  
+
+    // Game loop  
+    function gameLoop() {  
+        update();  
+        draw();  
+        requestAnimationFrame(gameLoop);  
+    }  
+
+    // Mulai  
+    window.onload = () => {  
+        gameLoop();  
+    };  
+</script>
+
+</body>  
+</html>
